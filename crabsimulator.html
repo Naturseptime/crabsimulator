@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <title>Crab Simuatlor</title>
+  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+</head>
+<body style="background-color: #222">
+  <div style="text-align: center">
+    <canvas id="mycanvas" width="1200" height="750"></canvas>
+  </div>
+  <div id="buttons">
+    <button id="run-button">Run</button>
+    <button id="scroll-button">Move</button>
+    <button id="add-edge-button">Connect</button>
+    <button id="add-crab-button">Crab</button>
+  </div>
+  <script>
+    const canvas = document.getElementById("mycanvas");
+    const ctx = canvas.getContext("2d");
+    const deltaTime = 1.0 / 60.0;
+    var hexScaling = 50;
+
+
+    const directions = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+
+    var circuit = {};
+    var crabs = [];
+
+    canvas.addEventListener('mousedown', function(event) {
+      onCanvasClick(event)
+    });
+
+    function onCanvasClick(event) {
+      if(mode != "add-edge" && mode != "add-crab") return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) + screenPositionX;
+      const y = (event.clientY - rect.top) + screenPositionY;
+      const [u, v] = screenToHex(x, y);
+      const iu = Math.floor(u);
+      const iv = Math.floor(v);
+      const fu = u - iu;
+      const fv = v - iv;
+
+      var midPoints;
+      if(mode == "add-crab")
+        midPoints = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
+      else
+        midPoints = [[0.5, 0.0], [0.0, 0.5], [0.5, 0.5], [0.5, 1.0], [1.0, 0.5]];
+
+      var minDistance, bestIndex;
+      for(i = 0; i < midPoints.length; ++i) {
+        const diffVector = [fu - midPoints[i][0], fv - midPoints[i][1]];
+        const distance = hexDotProduct(diffVector, diffVector);
+        if(minDistance == undefined || distance < minDistance) {
+          minDistance = distance;
+          bestIndex = i;
+        }
+      }
+
+      if(mode == "add-crab") {
+        switch(bestIndex) {
+          case 0: toggleCrab(iu, iv, 0); break;
+          case 1: toggleCrab(iu, iv + 1, 0); break;
+          case 2: toggleCrab(iu + 1, iv, 0); break;
+          case 3: toggleCrab(iu + 1, iv + 1, 0); break;
+        }
+      }
+      else {
+        switch(bestIndex) {
+          case 0: toggleEdge(iu, iv, 0); break;
+          case 1: toggleEdge(iu, iv, 1); break;
+          case 2: toggleEdge(iu + 1, iv, 2); break;
+          case 3: toggleEdge(iu, iv + 1, 0); break;
+          case 4: toggleEdge(iu + 1, iv, 1); break;
+        }
+      }
+    }
+
+    function encodeCoord(u, v) {
+      return u + "," + v;
+    }
+    function decodeCoord(k) {
+      const parts = k.split(",");
+      return [parseInt(parts[0]), parseInt(parts[1])];
+    }
+
+    function addCrab(upos, vpos) {
+      var crab = {upos: upos, vpos: vpos, uvel: 0, vvel: 0};
+      const possibleDirections = circuit[encodeCoord(upos, vpos)];
+      for(d = 0; d < directions.length; ++d) {
+        if(possibleDirections & (1 << d)) {
+          crab.uvel = directions[d][0];
+          crab.vvel = directions[d][1];
+          break;
+        }
+      }
+      crabs.push(crab);
+    }
+
+    function addEdge(u, v, d) {
+      d %= 6;
+      const e = encodeCoord(u, v);
+      const f = encodeCoord(u + directions[d][0], v + directions[d][1]);
+      if(circuit[e] === undefined)
+        circuit[e] = 0;
+      if(circuit[f] === undefined)
+        circuit[f] = 0;
+      circuit[e] |= 1 << d;
+      circuit[f] |= 1 << ((d + 3) % 6);
+    }
+
+    function removeEdge(u, v, d) {
+      d %= 6;
+      const e = encodeCoord(u, v);
+      const f = encodeCoord(u + directions[d][0], v + directions[d][1]);
+      if(circuit[e] !== undefined)
+        circuit[e] &= ~(1 << d);
+      if(circuit[f] !== undefined)
+        circuit[f] &= ~(1 << ((d + 3) % 6));
+      //~ if(circuit[e] == 0)
+        //~ circuit.delete(e);
+      //~ if(circuit[f] == 0)
+        //~ circuit.delete(f);
+    }
+
+    function isCrab(u, v) {
+      for(crab of crabs.values())
+        if(crab.upos == u && crab.vpos == v)
+          return true;
+      return false;
+    }
+
+    function removeCrab(u, v) {
+      var newCrabs = [];
+      for(crab of crabs.values())
+        if(!(crab.upos == u && crab.vpos == v))
+          newCrabs.push(crab);
+      crabs = newCrabs;
+    }
+
+
+    function toggleCrab(u, v) {
+      if(isCrab(u, v))
+        removeCrab(u, v);
+      else
+        addCrab(u, v);
+    }
+
+    function isEdge(u, v, d) {
+      const e = encodeCoord(u, v);
+      return ((circuit[e] & (1 << d)) !== 0);
+    }
+
+    function toggleEdge(u, v, d) {
+      if(isEdge(u, v, d))
+        removeEdge(u, v, d);
+      else
+        addEdge(u, v, d);
+    }
+
+    function addAndGate(u, v, d) {
+      addEdge(u - 1, v - 1, d);
+      addEdge(u - 2, v + 1, d);
+      addEdge(u, v, d);
+      addEdge(u + 1, v, d);
+      addEdge(u, v, d + 1);
+      addEdge(u, v, d + 2);
+      addEdge(u, v, d + 4);
+      addEdge(u, v, d + 5);
+    }
+
+    function addOrGate(u, v, d) {
+      addEdge(u, v, d);
+      addEdge(u, v, d + 2);
+      addEdge(u, v, d + 4);
+    }
+
+    function addNotGate(u, v, d) {
+      addEdge(u + 1, v - 1, d + 3);
+      addEdge(u - 2, v + 1, d);
+      addEdge(u, v + 1, d);
+      addEdge(u, v, d + 3);
+
+      addEdge(u, v, d);
+      addEdge(u, v, d + 1);
+      addEdge(u, v, d + 2);
+      addEdge(u, v, d + 4);
+    }
+
+    addAndGate(0, 0, 0);
+    addCrab(-2, 1);
+    addCrab(-1, -1);
+
+    function hexToScreen(u, v) {
+      const x = canvas.width * 0.5 + u * hexScaling + v * hexScaling * 0.5;
+      const y = canvas.height * 0.5 - v * hexScaling * Math.sqrt(3) * 0.5;
+      return [x, y];
+    }
+
+    function screenToHex(x, y) {
+      const xs = (x - canvas.width * 0.5) / hexScaling;
+      const ys = (canvas.height * 0.5 - y) / hexScaling;
+      const u = xs - ys / Math.sqrt(3);
+      const v = ys / (Math.sqrt(3) * 0.5);
+      return [u, v];
+    }
+
+    function gatherIntoCells(crabs) {
+      var cells = [];
+      for(crab of crabs.values()) {
+        if(cells[encodeCoord(crab.upos, crab.vpos)] === undefined)
+          cells[encodeCoord(crab.upos, crab.vpos)] = [];
+        cells[encodeCoord(crab.upos, crab.vpos)].push(crab);
+      }
+      return cells;
+    }
+
+    //~ function finalPosition(xpos, ypos) {
+      //~ for(i in circuit.finalPositions) {
+        //~ if(circuit.finalPositions[i][0] == xpos &&
+          //~ circuit.finalPositions[i][1] == ypos) {
+          //~ return true;
+        //~ }
+      //~ }
+      //~ return false;
+    //~ }
+
+    function hexDotProduct(hexPosA, hexPosB) {
+      return hexPosA[0] * hexPosB[0] + hexPosA[0] * hexPosB[1] * 0.5 +
+        hexPosA[1] * hexPosB[0] * 0.5 + hexPosA[1] * hexPosB[1];
+    }
+
+    function crabInteraction() {
+      for(c in crabs) {
+        crabs[c].upos += crabs[c].uvel;
+        crabs[c].vpos += crabs[c].vvel;
+      }
+
+      const cells = gatherIntoCells(crabs);
+      var newCrabs = [];
+
+      for([ckey, crabs] of Object.entries(cells)) {
+        //~ if(finalPosition(xpos, ypos)) {
+          //~ newCrabs.push({xpos: xpos, ypos: ypos, xvel: 0, yvel: 0});
+          //~ continue;
+        //~ }
+
+        var uvelSum = 0, vvelSum = 0;
+        for(crab of crabs.values()) {
+          uvelSum += crab.uvel;
+          vvelSum += crab.vvel;
+        }
+
+        var maxDotProduct = undefined, bestDirection;
+        for(d = 0; d < directions.length; ++d) {
+          if(((circuit[ckey] || 0) & (1 << d)) == 0)
+            continue;
+          const dotProduct = hexDotProduct(directions[d], [uvelSum, vvelSum]) / Math.sqrt(hexDotProduct(directions[d], directions[d]));
+
+          if(maxDotProduct === undefined || dotProduct > maxDotProduct) {
+            maxDotProduct = dotProduct;
+            bestDirection = directions[d];
+          }
+        }
+
+        for(d = 0; d < directions.length; ++d) {
+          if(((circuit[ckey] || 0) & (1 << d)) == 0)
+            continue;
+          const dotProduct = hexDotProduct(directions[d], [uvelSum, vvelSum]) / Math.sqrt(hexDotProduct(directions[d], directions[d]));
+
+          if(Math.abs(dotProduct - maxDotProduct) < 0.001) {
+            var uvelNew = directions[d][0];
+            var vvelNew = directions[d][1];
+            const [upos, vpos] = decodeCoord(ckey);
+            newCrabs.push({upos: upos, vpos: vpos,
+              uvel: uvelNew, vvel: vvelNew});
+          }
+        }
+      }
+
+      crabs = newCrabs;
+    }
+
+    function drawSimulation() {
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.translate(-screenPositionX, -screenPositionY);
+
+      const center = screenToHex(canvas.width / 2 + screenPositionX, canvas.height / 2 + screenPositionY);
+      const ucenter = Math.round(center[0]);
+      const vcenter = Math.round(center[1]);
+      const uextent = Math.ceil(canvas.width / (2 * hexScaling) * 1.5);
+      const vextent = Math.ceil(canvas.height/ (2 * hexScaling) * 1.1);
+
+      for(u = ucenter - uextent; u <= ucenter + uextent; ++u)
+        for(v = vcenter - vextent; v <= vcenter + vextent; ++v) {
+          const [x, y] = hexToScreen(u, v);
+
+          ctx.beginPath();
+          ctx.arc(x, y, 5.0, 0, 2 * Math.PI);
+
+          ctx.fillStyle = 'darkblue';
+          ctx.fill();
+        }
+
+
+      for(c in circuit) {
+        const [u, v] = decodeCoord(c);
+        const pos = hexToScreen(u, v);
+
+        ctx.beginPath();
+        for(d = 0; d < 6; ++d) {
+          if(((circuit[c] || 0) & (1 << d)) == 0)
+            continue;
+
+          const dest = hexToScreen(u + directions[d][0] * 0.5, v + directions[d][1] * 0.5);
+          ctx.moveTo(pos[0], pos[1]);
+          ctx.lineTo(dest[0], dest[1]);
+        }
+        ctx.strokeStyle = "blue";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      for(crab of crabs.values()) {
+        const [x, y] = hexToScreen(
+          crab.upos + simulationAnimation * crab.uvel,
+          crab.vpos + simulationAnimation * crab.vvel);
+        ctx.beginPath();
+        ctx.arc(x, y, 5.0, 0, 2 * Math.PI);
+
+        ctx.fillStyle = 'red';
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    const simulationStepsPerSecond = 2.0;
+    var simulationStep = 0;
+    var simulationAnimation = 0.0;
+
+    function moveSimulation() {
+      if(!simulationRunning && simulationAnimation == 0.0)
+        return;
+
+      simulationAnimation += deltaTime * simulationStepsPerSecond;
+      if(simulationAnimation >= 1.0) {
+        crabInteraction();
+        simulationStep += 1;
+        simulationAnimation = 0.0;
+      }
+    }
+
+    var simulationRunning = false;
+
+    var counter = 0;
+    var lastFrame;
+    function mainLoop(time) {
+      var frame = Math.floor(time / (1000.0 * deltaTime));
+      if(lastFrame === undefined) {
+        lastFrame = frame;
+      }
+
+      if(frame > lastFrame) {
+        drawSimulation();
+        for(i = lastFrame; i < frame; ++i)
+          moveSimulation();
+        lastFrame = frame;
+        ++counter;
+      }
+      requestAnimationFrame(mainLoop);
+    }
+
+    requestAnimationFrame(mainLoop);
+
+    var screenPositionX = 0, screenPositionY = 0, screenZoom = 0;
+    var scrollLastX, scrollLastY, scrolling = false;
+
+    canvas.addEventListener('mousedown', function(event) {
+      if(mode != "scroll") return;
+      scrolling = true;
+      scrollLastX = event.pageX - canvas.offsetLeft;
+      scrollLastY = event.pageY - canvas.offsetTop;
+      canvas.style.cursor = 'grabbing';
+    })
+
+    canvas.addEventListener('mousemove', function(event) {
+      if(!scrolling) return;
+      const scrollCurrentX = event.pageX - canvas.offsetLeft;
+      const scrollCurrentY = event.pageY - canvas.offsetTop;
+      screenPositionX -= scrollCurrentX - scrollLastX;
+      screenPositionY -= scrollCurrentY - scrollLastY;
+      scrollLastX = scrollCurrentX;
+      scrollLastY = scrollCurrentY;
+    })
+
+    canvas.addEventListener('mouseup', function(event) {
+      if(mode != "scroll") return;
+      scrolling = false;
+      canvas.style.cursor = 'grab';
+    })
+
+    canvas.addEventListener('mouseleave', function(event) {
+      if(mode != "scroll") return;
+      scrolling = false;
+      canvas.style.cursor = 'grab';
+    })
+
+
+    var mode = "scroll";
+
+    function setMode(newMode) {
+      mode = newMode;
+      switch(newMode) {
+        case "scroll":
+          scrollButton.classList.add("active");
+          addEdgeButton.classList.remove("active");
+          addCrabButton.classList.remove("active");
+          canvas.style.cursor = 'grab';
+          break;
+        case "add-edge":
+          scrollButton.classList.remove("active");
+          addEdgeButton.classList.add("active");
+          addCrabButton.classList.remove("active");
+          canvas.style.cursor = 'crosshair';
+          break;
+        case "add-crab":
+          scrollButton.classList.remove("active");
+          addEdgeButton.classList.remove("active");
+          addCrabButton.classList.add("active");
+          canvas.style.cursor = 'crosshair';
+          break;
+      }
+    }
+
+
+
+    const runButton = document.getElementById('run-button');
+    //~ const resetButton = document.getElementById('reset-button');
+    //~ const forwardButton = document.getElementById('forward-button');
+    //~ const backwardButton = document.getElementById('backward-button');
+    const scrollButton = document.getElementById('scroll-button');
+    const addEdgeButton = document.getElementById('add-edge-button');
+    const addCrabButton = document.getElementById('add-crab-button');
+
+
+    runButton.addEventListener('click', async () => {
+      simulationRunning = !simulationRunning;
+      runButton.classList.toggle('active');
+    });
+
+    scrollButton.addEventListener('click', async () => {
+      setMode("scroll");
+    });
+
+    addEdgeButton.addEventListener('click', async () => {
+      setMode("add-edge");
+    });
+
+    addCrabButton.addEventListener('click', async () => {
+      setMode("add-crab");
+    });
+</script>
+</body>
+</html>
