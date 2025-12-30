@@ -19,7 +19,7 @@
     const canvas = document.getElementById("mycanvas");
     const ctx = canvas.getContext("2d");
     const deltaTime = 1.0 / 60.0;
-    var hexScaling = 50;
+    var hexScaling = 30;
 
 
     const directions = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
@@ -339,7 +339,7 @@
       ctx.restore();
     }
 
-    const simulationStepsPerSecond = 2.0;
+    var simulationStepsPerSecond = 2.0;
     var simulationStep = 0;
     var simulationAnimation = 0.0;
 
@@ -409,7 +409,6 @@
       scrolling = false;
       canvas.style.cursor = 'grab';
     })
-
 
     var mode = "scroll";
 
