@@ -11,9 +11,10 @@
   </div>
   <div id="buttons">
     <button id="run-button">Run</button>
-    <button id="scroll-button">Move</button>
+    <button id="scroll-button" class="active">Move</button>
     <button id="add-edge-button">Connect</button>
     <button id="add-crab-button">Crab</button>
+    <button id="share-button">Share URL</button>
   </div>
   <script>
     const canvas = document.getElementById("mycanvas");
@@ -446,6 +447,8 @@
     const addEdgeButton = document.getElementById('add-edge-button');
     const addCrabButton = document.getElementById('add-crab-button');
 
+    const shareButton = document.getElementById('share-button');
+
 
     runButton.addEventListener('click', async () => {
       simulationRunning = !simulationRunning;
@@ -463,6 +466,34 @@
     addCrabButton.addEventListener('click', async () => {
       setMode("add-crab");
     });
+
+    async function copyCurrentUrl() {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        alert('Simulation URL copied to clipboard!');
+      } catch (err) {
+        alert('Failed to copy URL: ', err);
+      }
+    }
+
+    shareButton.addEventListener('click', async () => {
+      const state = {"circuit": circuit, "crabs": crabs}
+      const url = "?state=" + encodeURIComponent(btoa(JSON.stringify(state)));
+      window.history.pushState({}, "", url);
+      copyCurrentUrl();
+    });
+
+    function loadFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const state = JSON.parse(atob(params.get('state')));
+      if(state)
+      {
+        circuit = state["circuit"];
+        crabs = state["crabs"];
+      }
+    }
+
+    loadFromUrl();
 </script>
 </body>
 </html>
